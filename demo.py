@@ -2,28 +2,28 @@
 """
 Apple II Cleanroom ROM Demo
 
-Simple, working demo with green phosphor look.
-Type CHARSET to see the actual character ROM patterns.
+ALL text rendered using actual character ROM pixels.
+Uses a 20x12 character display (140x96 pixels) to fit in ~150 column terminal.
 """
 
 import os
 import sys
 import time
 
-# ANSI escape codes
+# ANSI 
 ESC = "\033"
 CLEAR = f"{ESC}[2J{ESC}[H"
 RESET = f"{ESC}[0m"
 
 # Apple II green phosphor
-GREEN = f"{ESC}[32m"
-BRIGHT = f"{ESC}[92m"
-BG = f"{ESC}[40m"
+GREEN = f"{ESC}[38;2;51;255;51m"
+DARK = f"{ESC}[38;2;0;40;0m"
+BG = f"{ESC}[48;2;0;15;0m"
 DIM = f"{ESC}[2m"
 
 
 class CharacterROM:
-    """Load the cleanroom character generator ROM."""
+    """Cleanroom character generator ROM."""
     
     def __init__(self):
         self.patterns = {}
@@ -35,142 +35,174 @@ class CharacterROM:
                 rom = f.read()
             for i in range(64):
                 self.patterns[i] = list(rom[i*8:(i+1)*8])
+        else:
+            # Fallback - empty patterns
+            for i in range(64):
+                self.patterns[i] = [0] * 8
     
-    def get_char_for_index(self, idx):
-        """Get ASCII character for ROM index."""
-        if 0 <= idx <= 31:
-            return chr(idx + 64)  # @ A B C ... _ 
-        elif 32 <= idx <= 63:
-            return chr(idx)       # space ! " # ... ?
-        return '?'
-    
-    def render_charset(self):
-        """Render all 64 characters from the ROM as pixel art."""
-        lines = []
-        lines.append(f"{BRIGHT}╔════════════════════════════════════════════════════════════════════════╗")
-        lines.append(f"║  CLEANROOM CHARACTER GENERATOR ROM - 64 CHARACTERS (7x8 PIXELS EACH)   ║")
-        lines.append(f"╚════════════════════════════════════════════════════════════════════════╝{GREEN}")
-        lines.append("")
+    def get_pattern(self, char):
+        """Get 8-row pixel pattern for a character."""
+        c = ord(char) if isinstance(char, str) else char
         
-        # Render 8 characters per row, 8 rows total
-        for row in range(8):
-            # Each character is 8 pixels tall, render 2 at a time with half-blocks
-            for pixel_row in range(0, 8, 2):
-                line = "  "
-                for col in range(8):
-                    idx = row * 8 + col
-                    pattern = self.patterns.get(idx, [0]*8)
-                    
-                    # Render this character's pixels for these 2 rows
+        if 64 <= c <= 95:      # @ through _
+            idx = c - 64
+        elif 32 <= c <= 63:    # space through ?
+            idx = c
+        elif 97 <= c <= 122:   # lowercase -> uppercase
+            idx = c - 97 + 1
+        else:
+            idx = 32           # default to space
+        
+        return self.patterns.get(idx, [0]*8)
+
+
+class PixelScreen:
+    """Screen that renders ALL text using character ROM pixels."""
+    
+    # Half-blocks for 2 vertical pixels per terminal character
+    BLOCK = {
+        (0, 0): ' ',
+        (1, 0): '▀',
+        (0, 1): '▄',
+        (1, 1): '█',
+    }
+    
+    def __init__(self, charrom, cols=20, rows=12):
+        self.charrom = charrom
+        self.cols = cols
+        self.rows = rows
+        self.text = [[' '] * cols for _ in range(rows)]
+        self.cx, self.cy = 0, 0
+    
+    def clear(self):
+        self.text = [[' '] * self.cols for _ in range(self.rows)]
+        self.cx, self.cy = 0, 0
+    
+    def scroll(self):
+        self.text.pop(0)
+        self.text.append([' '] * self.cols)
+        self.cy = self.rows - 1
+    
+    def newline(self):
+        self.cx = 0
+        self.cy += 1
+        if self.cy >= self.rows:
+            self.scroll()
+    
+    def putc(self, ch):
+        if ch == '\n':
+            self.newline()
+        elif ch == '\r':
+            self.cx = 0
+        elif ch == '\b' or ch == '\x7f':
+            if self.cx > 0:
+                self.cx -= 1
+                self.text[self.cy][self.cx] = ' '
+        else:
+            if 0 <= self.cy < self.rows and 0 <= self.cx < self.cols:
+                # Convert to uppercase for Apple II authenticity
+                self.text[self.cy][self.cx] = ch.upper() if ch.isalpha() else ch
+                self.cx += 1
+                if self.cx >= self.cols:
+                    self.newline()
+    
+    def write(self, s):
+        for ch in s:
+            self.putc(ch)
+    
+    def render(self):
+        """Render entire screen using character ROM pixels."""
+        # Build pixel buffer: cols*7 wide, rows*8 tall
+        pw = self.cols * 7
+        ph = self.rows * 8
+        pixels = [[0] * pw for _ in range(ph)]
+        
+        # Render each character from ROM
+        for ty in range(self.rows):
+            for tx in range(self.cols):
+                ch = self.text[ty][tx]
+                
+                # Cursor = solid block
+                if tx == self.cx and ty == self.cy:
+                    pattern = [0x7F] * 8  # All pixels on
+                else:
+                    pattern = self.charrom.get_pattern(ch)
+                
+                # Plot to pixel buffer
+                for row in range(8):
                     for bit in range(7):
-                        top = 1 if pattern[pixel_row] & (1 << bit) else 0
-                        bot = 1 if pattern[pixel_row + 1] & (1 << bit) else 0
-                        
-                        if top and bot:
-                            line += "█"
-                        elif top:
-                            line += "▀"
-                        elif bot:
-                            line += "▄"
-                        else:
-                            line += " "
-                    line += "  "  # Space between chars
-                lines.append(line)
-            
-            # Character labels
-            label_line = "  "
-            for col in range(8):
-                idx = row * 8 + col
-                ch = self.get_char_for_index(idx)
-                label_line += f"  {ch}      "
-            lines.append(f"{DIM}{label_line}{RESET}{GREEN}")
-            lines.append("")
+                        if pattern[row] & (1 << bit):
+                            pixels[ty * 8 + row][tx * 7 + bit] = 1
         
-        return '\n'.join(lines)
+        # Render to terminal using half-blocks
+        print(CLEAR, end='')
+        print(f"{GREEN}{BG}")
+        
+        # Top border
+        border_w = pw + 4
+        print("  ╔" + "═" * border_w + "╗")
+        print("  ║  " + " " * pw + "  ║")
+        
+        # Pixel rows (2 at a time with half-blocks)
+        for y in range(0, ph, 2):
+            print("  ║  ", end="")
+            for x in range(pw):
+                top = pixels[y][x]
+                bot = pixels[y + 1][x] if y + 1 < ph else 0
+                print(self.BLOCK[(top, bot)], end="")
+            print("  ║")
+        
+        # Bottom border
+        print("  ║  " + " " * pw + "  ║")
+        print("  ╚" + "═" * border_w + "╝")
+        print(f"{DIM}     [APPLE II CLEANROOM - ALL PIXELS FROM ROM]{RESET}")
+        sys.stdout.flush()
 
 
 class Apple2:
-    """Simple Apple II BASIC interpreter."""
+    """Apple II with pixel-perfect character ROM display."""
     
-    def __init__(self):
-        self.charrom = CharacterROM()
-        self.screen = []
+    def __init__(self, screen):
+        self.screen = screen
         self.variables = {}
         self.program = {}
-        self.max_lines = 20
-    
-    def output(self, text):
-        """Add text to screen buffer."""
-        for line in text.split('\n'):
-            self.screen.append(line)
-        # Keep only last N lines
-        while len(self.screen) > self.max_lines:
-            self.screen.pop(0)
-    
-    def render(self):
-        """Render the screen."""
-        print(CLEAR, end='')
-        print(f"{BRIGHT}{BG}")
-        print("╔══════════════════════════════════════════╗")
-        print("║{:^42}║".format("APPLE ][ CLEANROOM"))
-        print("╠══════════════════════════════════════════╣")
-        
-        # Show screen content
-        for i in range(self.max_lines):
-            if i < len(self.screen):
-                line = self.screen[i][:40]
-            else:
-                line = ""
-            print(f"║ {GREEN}{line:<40}{BRIGHT} ║")
-        
-        print("╠══════════════════════════════════════════╣")
-        print(f"║{DIM} QUIT EXIT  CHARSET  NEW RUN LIST {RESET}{BRIGHT}      ║")
-        print("╚══════════════════════════════════════════╝")
-        print(f"{RESET}")
     
     def run(self):
-        """Main loop."""
-        self.output("APPLE II CLEANROOM BASIC")
-        self.output("TYPE 'CHARSET' TO VIEW CHARACTER ROM")
-        self.output("")
+        self.screen.write("APPLE II CLEANROOM\n")
+        self.screen.write("]")
+        self.screen.render()
         
         while True:
-            self.render()
-            
             try:
-                print(f"{GREEN}]{RESET} ", end='', flush=True)
-                line = input().strip().upper()
+                # Show prompt outside the pixel area
+                print(f"{GREEN}>{RESET} ", end='', flush=True)
+                line = input().strip()
             except (KeyboardInterrupt, EOFError):
                 print(f"\n{RESET}")
                 break
             
-            if not line:
-                self.output("]")
-                continue
+            # Echo input to pixel screen
+            self.screen.write(line.upper() + "\n")
             
-            self.output("]" + line)
+            cmd = line.upper().strip()
             
-            if line in ('QUIT', 'EXIT', 'BYE'):
-                self.output("GOODBYE")
-                self.render()
+            if cmd in ('QUIT', 'EXIT', 'BYE'):
+                self.screen.write("BYE\n")
+                self.screen.render()
                 break
             
-            if line == 'CHARSET':
-                # Show character ROM
-                print(CLEAR, end='')
-                print(f"{GREEN}{BG}")
-                print(self.charrom.render_charset())
-                print(f"\n{DIM}  Press Enter to continue...{RESET}")
-                input()
-                continue
+            if cmd:
+                result = self.execute(cmd)
+                if result:
+                    self.screen.write(result)
+                    if not result.endswith('\n'):
+                        self.screen.write('\n')
             
-            result = self.execute(line)
-            if result:
-                self.output(result.rstrip('\n'))
+            self.screen.write("]")
+            self.screen.render()
     
     def execute(self, line):
-        """Execute a BASIC line."""
-        # Line number = store
+        # Line number = store program
         if line and line[0].isdigit():
             parts = line.split(None, 1)
             num = int(parts[0])
@@ -183,27 +215,28 @@ class Apple2:
         cmd = line.split()[0] if line.split() else ''
         args = line[len(cmd):].strip()
         
-        commands = {
-            'PRINT': self.do_print,
-            '?': self.do_print,
-            'LIST': lambda a: self.do_list(),
-            'RUN': lambda a: self.do_run(),
-            'NEW': lambda a: self.do_new(),
-            'CLR': lambda a: self.do_new(),
-            'HOME': lambda a: self.do_home(),
-        }
-        
-        if cmd in commands:
-            return commands[cmd](args)
+        if cmd in ('PRINT', '?'):
+            return self.cmd_print(args)
+        elif cmd == 'LIST':
+            return self.cmd_list()
+        elif cmd == 'RUN':
+            return self.cmd_run()
+        elif cmd == 'NEW':
+            self.program.clear()
+            self.variables.clear()
+            return None
+        elif cmd == 'HOME':
+            self.screen.clear()
+            return None
         elif '=' in line:
-            return self.do_let(line)
+            return self.cmd_let(line)
         else:
             return "?SYNTAX ERROR"
     
-    def do_print(self, args):
+    def cmd_print(self, args):
         if not args:
-            return ""
-        result = []
+            return "\n"
+        out = []
         i = 0
         while i < len(args):
             while i < len(args) and args[i] == ' ':
@@ -216,11 +249,9 @@ class Apple2:
                 while i < len(args) and args[i] != '"':
                     s += args[i]
                     i += 1
-                result.append(s)
+                out.append(s)
                 i += 1
             elif args[i] in ';,':
-                if args[i] == ',':
-                    result.append('   ')
                 i += 1
             else:
                 j = i
@@ -229,75 +260,60 @@ class Apple2:
                 expr = args[i:j]
                 i = j
                 try:
-                    val = eval(expr, {"__builtins__": {}}, self.variables)
-                    result.append(str(val))
+                    out.append(str(eval(expr, {"__builtins__": {}}, self.variables)))
                 except:
-                    result.append('0')
-        return ''.join(result)
+                    out.append('0')
+        return ''.join(out) + '\n'
     
-    def do_let(self, line):
+    def cmd_let(self, line):
         if line.startswith('LET '):
             line = line[4:]
         try:
             var, expr = line.split('=', 1)
-            self.variables[var.strip()] = eval(
-                expr.strip(), {"__builtins__": {}}, self.variables
-            )
+            self.variables[var.strip()] = eval(expr.strip(), {"__builtins__": {}}, self.variables)
         except:
             return "?SYNTAX ERROR"
         return None
     
-    def do_list(self):
+    def cmd_list(self):
         if not self.program:
             return None
-        return '\n'.join(f" {n}  {self.program[n]}" for n in sorted(self.program))
+        lines = [f"{n} {self.program[n]}" for n in sorted(self.program)]
+        return '\n'.join(lines) + '\n'
     
-    def do_new(self):
-        self.program.clear()
-        self.variables.clear()
-        return None
-    
-    def do_home(self):
-        self.screen.clear()
-        return None
-    
-    def do_run(self):
+    def cmd_run(self):
         if not self.program:
             return None
-        
         out = []
         self.variables.clear()
         lines = sorted(self.program.keys())
-        pc = 0
-        stack = []
+        pc, stack = 0, []
         
         for _ in range(10000):
             if pc >= len(lines):
                 break
-            
             code = self.program[lines[pc]]
             cmd = code.split()[0] if code.split() else ''
             args = code[len(cmd):].strip()
             
             if cmd in ('PRINT', '?'):
-                r = self.do_print(args)
-                if r:
-                    out.append(r)
+                r = self.cmd_print(args)
+                if r and r.strip():
+                    out.append(r.rstrip('\n'))
                 pc += 1
             elif cmd == 'GOTO':
-                target = int(args)
-                pc = lines.index(target) if target in lines else len(lines)
+                pc = lines.index(int(args)) if int(args) in lines else len(lines)
             elif cmd == 'FOR':
                 p = args.replace('=', ' ').split()
                 var, start = p[0], int(p[1])
                 end = int(p[p.index('TO') + 1])
                 self.variables[var] = start
-                stack.append((var, end, 1, pc))
+                stack.append((var, end, pc))
                 pc += 1
             elif cmd == 'NEXT':
                 if stack:
-                    var, end, step, fpc = stack[-1]
-                    self.variables[var] += step
+                    var, end, fpc = stack[-1]
+                    self.variables[var] += 1
                     if self.variables[var] <= end:
                         pc = fpc + 1
                     else:
@@ -308,67 +324,63 @@ class Apple2:
             elif cmd == 'IF':
                 idx = code.find(' THEN ')
                 cond = code[2:idx].replace('=', '==').replace('<>', '!=')
-                then = code[idx+6:].strip()
+                then = int(code[idx+6:].strip())
                 try:
                     if eval(cond, {"__builtins__": {}}, self.variables):
-                        pc = lines.index(int(then))
+                        pc = lines.index(then) if then in lines else len(lines)
                     else:
                         pc += 1
                 except:
                     pc += 1
             elif '=' in code:
-                self.do_let(code)
+                self.cmd_let(code)
                 pc += 1
-            elif cmd in ('END', 'STOP', 'REM'):
-                if cmd == 'REM':
-                    pc += 1
-                else:
-                    break
+            elif cmd in ('END', 'STOP'):
+                break
+            elif cmd == 'REM':
+                pc += 1
             else:
                 pc += 1
         
-        return '\n'.join(out) if out else None
+        return '\n'.join(out) + '\n' if out else None
 
 
 def main():
     print(CLEAR, end='')
-    print(f"{BRIGHT}{BG}")
+    print(f"{GREEN}{BG}")
     print()
-    print("      █████╗ ██████╗ ██████╗ ██╗     ███████╗")
-    print("     ██╔══██╗██╔══██╗██╔══██╗██║     ██╔════╝")
-    print("     ███████║██████╔╝██████╔╝██║     █████╗  ")
-    print("     ██╔══██║██╔═══╝ ██╔═══╝ ██║     ██╔══╝  ")
-    print("     ██║  ██║██║     ██║     ███████╗███████╗")
-    print("     ╚═╝  ╚═╝╚═╝     ╚═╝     ╚══════╝╚══════╝")
+    print("   █████╗ ██████╗ ██████╗ ██╗     ███████╗  ][")
+    print("  ██╔══██╗██╔══██╗██╔══██╗██║     ██╔════╝")
+    print("  ███████║██████╔╝██████╔╝██║     █████╗")
+    print("  ██╔══██║██╔═══╝ ██╔═══╝ ██║     ██╔══╝")
+    print("  ██║  ██║██║     ██║     ███████╗███████╗")
+    print("  ╚═╝  ╚═╝╚═╝     ╚═╝     ╚══════╝╚══════╝")
     print()
-    print("            ][ CLEANROOM EDITION")
+    print("         CLEANROOM EDITION")
     print()
-    print(f"{GREEN}     100% Implemented from Published Specs")
-    print("        No Original Apple Code Used")
+    print("  All text rendered using pixels from")
+    print("  the cleanroom character generator ROM")
     print()
     
-    # Show ROMs
+    # Load ROM
+    charrom = CharacterROM()
+    
     base = os.path.dirname(os.path.abspath(__file__))
-    roms = [
-        'cleanroom_roms/chargen.bin',
-        'cleanroom_roms/monitor_f800.bin', 
-        'cleanroom_roms/applesoft.bin',
-        'cleanroom_roms/disk_ii_p5a.bin',
-    ]
+    rom_path = os.path.join(base, 'cleanroom_roms/chargen.bin')
+    if os.path.exists(rom_path):
+        print(f"  ✓ Character ROM loaded ({os.path.getsize(rom_path)} bytes)")
+    else:
+        print("  ✗ Character ROM not found!")
     
-    print(f"{DIM}     Cleanroom ROMs loaded:{RESET}{GREEN}")
-    for rom in roms:
-        path = os.path.join(base, rom)
-        if os.path.exists(path):
-            name = os.path.basename(rom)
-            size = os.path.getsize(path)
-            print(f"       ✓ {name} ({size} bytes)")
-    
+    print()
+    print("  Display: 20x12 chars = 140x96 pixels")
+    print("  (Needs ~150 column terminal)")
     print()
     print(f"{RESET}")
-    input("     Press Enter to start...")
+    input("  Press Enter to start...")
     
-    apple = Apple2()
+    screen = PixelScreen(charrom, cols=20, rows=12)
+    apple = Apple2(screen)
     apple.run()
     print(f"{RESET}")
 
