@@ -86,6 +86,11 @@ DISK II            | ✓ PASS     | ✓ YES           | TRUE cleanroom
 │   ├── build_disk_ii.py         # Disk II builder
 │   ├── monitor_f800.bin         # Monitor ROM implementation
 │   └── build_monitor.py         # Monitor ROM builder
+├── reference/
+│   ├── 6502_OPCODES.md          # 6502 instruction set reference
+│   ├── APPLE2_HARDWARE.md       # Apple II hardware/memory map
+│   ├── MONITOR_ENTRY_POINTS.md  # Monitor ROM API documentation
+│   └── AUTOSTART_MONITOR.md     # Autostart Monitor specifications
 ├── tests/
 │   ├── test_monitor_rom.py      # Monitor functional tests
 │   ├── test_chargen_rom.py      # Character Generator tests
@@ -96,6 +101,17 @@ DISK II            | ✓ PASS     | ✓ YES           | TRUE cleanroom
 │   └── DISK_II_ROM.md
 └── original_source/             # Original ROMs (for comparison only)
 ```
+
+## Reference Documentation
+
+The `reference/` directory contains **published specifications** that can be safely used for cleanroom implementation:
+
+- **[6502_OPCODES.md](reference/6502_OPCODES.md)** - Complete MOS 6502 instruction set reference (opcodes, addressing modes, timing)
+- **[APPLE2_HARDWARE.md](reference/APPLE2_HARDWARE.md)** - Apple II memory map, soft switches, I/O addresses, disk format
+- **[MONITOR_ENTRY_POINTS.md](reference/MONITOR_ENTRY_POINTS.md)** - Documented Monitor ROM entry points and their behavior
+- **[AUTOSTART_MONITOR.md](reference/AUTOSTART_MONITOR.md)** - Apple II+ Autostart Monitor specifications
+
+These references are compiled from publicly available documentation (MOS Technology manuals, Apple II Reference Manual, DOS 3.3 Manual) and do NOT contain information derived from analyzing original ROMs.
 
 ## Running Tests
 
