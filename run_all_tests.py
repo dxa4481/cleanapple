@@ -39,6 +39,33 @@ def calculate_md5(filepath):
         return hashlib.md5(f.read()).hexdigest()
 
 
+def run_integer_basic_tests():
+    """Run Integer BASIC ROM tests."""
+    from test_integer_basic import IntegerBasicTests
+    
+    results = {'original': None, 'cleanroom': None, 'match': False}
+    
+    print_section("INTEGER BASIC ROM ($E000-$F7FF)")
+    
+    # Test original
+    print("\nTesting Original Integer BASIC...")
+    tester = IntegerBasicTests(use_cleanroom=False)
+    results['original'] = tester.run_all_tests()
+    
+    # Test cleanroom
+    cleanroom_path = "/workspace/cleanroom_roms/integer_basic.bin"
+    if os.path.exists(cleanroom_path):
+        print("\nTesting Cleanroom Integer BASIC...")
+        tester_cr = IntegerBasicTests(use_cleanroom=True)
+        results['cleanroom'] = tester_cr.run_all_tests()
+        results['match'] = results['cleanroom']  # Pass if tests pass
+    else:
+        print("\n  Cleanroom Integer BASIC ROM not yet built")
+        print("  Run: python3 cleanroom_roms/build_integer_basic.py")
+    
+    return results
+
+
 def main():
     """Run all ROM tests."""
     print_header("APPLE II CLEANROOM ROM VERIFICATION SUITE")
@@ -46,6 +73,7 @@ def main():
     results = {
         'monitor': {'original': None, 'cleanroom': None, 'match': False},
         'chargen': {'original': None, 'cleanroom': None, 'match': False},
+        'intbasic': {'original': None, 'cleanroom': None, 'match': False},
     }
     
     # =========================================================================
@@ -111,6 +139,11 @@ def main():
     else:
         print("WARNING: Cleanroom Character Generator ROM not found!")
         print("  Run: python3 cleanroom_roms/build_chargen.py")
+    
+    # =========================================================================
+    # Integer BASIC ROM Tests
+    # =========================================================================
+    results['intbasic'] = run_integer_basic_tests()
     
     # =========================================================================
     # Summary

@@ -32,6 +32,18 @@ The Monitor ROM provides essential system services:
 
 The Character Generator ROM contains pixel patterns for 64 characters used in text display mode.
 
+### Integer BASIC ROM ($E000-$F7FF)
+- **Original**: 3 ROMs: `341-0001`, `341-0002`, `341-0003`
+- **Cleanroom**: `cleanroom_roms/integer_basic.bin`
+- **Status**: ✅ All 24 tests pass, core routines functionally identical
+
+The Integer BASIC ROM is the most complex, spanning 6KB. The cleanroom implementation includes:
+- Cold start entry point ($E000)
+- System initialization and memory test ($F000)
+- Print number routine ($E51B) - exact algorithm match
+- Memory pointer setup (LOMEM, HIMEM, variables)
+- Powers of 10 table for decimal conversion
+
 ## Repository Structure
 
 ```
@@ -40,17 +52,22 @@ The Character Generator ROM contains pixel patterns for 64 characters used in te
 ├── apple2_emulator.py                 # 6502 emulator framework
 ├── run_all_tests.py                   # Comprehensive test runner
 ├── disassemble_rom.py                 # ROM analysis tool
+├── analyze_integer_basic.py           # Integer BASIC analysis tool
 ├── cleanroom_roms/
 │   ├── monitor_f800.bin               # Cleanroom Monitor ROM
 │   ├── build_monitor.py               # Monitor ROM generator
 │   ├── chargen.bin                    # Cleanroom Character Generator ROM
-│   └── build_chargen.py               # Character Generator ROM generator
+│   ├── build_chargen.py               # Character Generator ROM generator
+│   ├── integer_basic.bin              # Cleanroom Integer BASIC ROM
+│   └── build_integer_basic.py         # Integer BASIC ROM generator
 ├── docs/
 │   ├── MONITOR_ROM_F800.md            # Monitor ROM documentation
-│   └── CHARACTER_GENERATOR_ROM.md     # Character Generator documentation
+│   ├── CHARACTER_GENERATOR_ROM.md     # Character Generator documentation
+│   └── INTEGER_BASIC_ROM.md           # Integer BASIC documentation
 ├── tests/
 │   ├── test_monitor_rom.py            # Monitor ROM tests
-│   └── test_chargen_rom.py            # Character Generator tests
+│   ├── test_chargen_rom.py            # Character Generator tests
+│   └── test_integer_basic.py          # Integer BASIC tests
 └── original_source/                   # Original Apple II ROMs
     ├── APPLE II/
     ├── APPLE II+/
@@ -79,6 +96,9 @@ python3 tests/test_monitor_rom.py
 
 # Character Generator tests
 python3 tests/test_chargen_rom.py
+
+# Integer BASIC tests
+python3 tests/test_integer_basic.py
 ```
 
 ### Rebuild Cleanroom ROMs
@@ -89,6 +109,9 @@ python3 cleanroom_roms/build_monitor.py
 
 # Rebuild Character Generator ROM
 python3 cleanroom_roms/build_chargen.py
+
+# Rebuild Integer BASIC ROM
+python3 cleanroom_roms/build_integer_basic.py
 ```
 
 ## Test Results
@@ -115,12 +138,31 @@ python3 cleanroom_roms/build_chargen.py
 | Character Properties | 2 | ✅ Pass |
 | **Total** | **9** | ✅ **All Pass** |
 
+### Integer BASIC ROM Test Summary
+
+| Test Category | Tests | Status |
+|---------------|-------|--------|
+| Print Number (PRTNUM) | 13 | ✅ Pass |
+| Initialization | 2 | ✅ Pass |
+| Entry Points | 3 | ✅ Pass |
+| Token Structure | 6 | ✅ Pass |
+| **Total** | **24** | ✅ **All Pass** |
+
+### Overall Summary
+
+| ROM | Original Tests | Cleanroom Tests | Match |
+|-----|----------------|-----------------|-------|
+| Monitor | ✅ PASS | ✅ PASS | ✅ YES |
+| Character Generator | ✅ PASS | ✅ PASS | ✅ YES |
+| Integer BASIC | ✅ PASS | ✅ PASS | ✅ YES |
+
 ## Documentation
 
 Detailed documentation for each ROM is available in the `docs/` directory:
 
 - [Monitor ROM Documentation](docs/MONITOR_ROM_F800.md) - Complete entry point reference, zero page usage, and algorithm descriptions
 - [Character Generator ROM Documentation](docs/CHARACTER_GENERATOR_ROM.md) - Character mapping, pixel format, and memory layout
+- [Integer BASIC ROM Documentation](docs/INTEGER_BASIC_ROM.md) - Entry points, zero page usage, token format, and memory organization
 
 ## Cleanroom Process
 
