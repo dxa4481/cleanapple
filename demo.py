@@ -173,7 +173,7 @@ class Display:
     
     def render(self, full_clear=False):
         """Render entire display using character ROM pixels."""
-        # Pixel buffer: 280 wide × 192 tall
+        # Pixel buffer
         pw = self.cols * 7
         ph = self.rows * 8
         pixels = [[0] * pw for _ in range(ph)]
@@ -198,33 +198,40 @@ class Display:
                         if byte & (1 << x):
                             pixels[py + y][px + x] = 1
         
-        # Output to terminal - just go home, don't clear (prevents flicker)
-        out = []
-        if full_clear:
-            out.append(Term.CLEAR)
-        else:
-            out.append("\033[H")  # Just move cursor to home
-        out.append(Term.HIDE_CURSOR)
-        out.append(Term.BG)
+        # Build screen lines (no trailing newlines - we'll position cursor)
+        lines = []
         
         # Top border
-        out.append(f"{Term.GREEN_DIM}╔{'═' * (pw + 2)}╗\n")
-        out.append(f"║ {' ' * pw} ║\n")
+        lines.append(f"{Term.GREEN_DIM}╔{'═' * (pw + 2)}╗")
+        lines.append(f"║ {' ' * pw} ║")
         
         # Pixels using half-blocks
         for y in range(0, ph, 2):
-            out.append(f"{Term.GREEN_DIM}║ {Term.GREEN}")
+            line = f"{Term.GREEN_DIM}║ {Term.GREEN}"
             for x in range(pw):
                 top = pixels[y][x]
                 bot = pixels[y + 1][x] if y + 1 < ph else 0
-                out.append(self.BLOCKS[(top, bot)])
-            out.append(f" {Term.GREEN_DIM}║\n")
+                line += self.BLOCKS[(top, bot)]
+            line += f" {Term.GREEN_DIM}║"
+            lines.append(line)
         
         # Bottom border
-        out.append(f"║ {' ' * pw} ║\n")
-        out.append(f"╚{'═' * (pw + 2)}╝\n")
-        out.append(f"{Term.GREEN_DIM}  [APPLE II CLEANROOM - ALL TEXT FROM CHARACTER ROM]{Term.RESET}")
-        out.append("\033[K\n")  # Clear to end of line
+        lines.append(f"║ {' ' * pw} ║")
+        lines.append(f"╚{'═' * (pw + 2)}╝")
+        lines.append(f"{Term.GREEN_DIM}  [CLEANROOM CHARACTER ROM]{Term.RESET}")
+        
+        # Output using absolute cursor positioning
+        out = []
+        if full_clear:
+            out.append(Term.CLEAR)
+        out.append(Term.HIDE_CURSOR)
+        out.append(Term.BG)
+        
+        for row_num, line in enumerate(lines):
+            # Move to row, column 1
+            out.append(f"\033[{row_num + 1};1H")
+            out.append(line)
+            out.append("\033[K")  # Clear rest of line
         
         sys.stdout.write(''.join(out))
         sys.stdout.flush()
