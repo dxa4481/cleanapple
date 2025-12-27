@@ -147,6 +147,37 @@ The `reference/` directory contains **published specifications** that can be saf
 
 These references are compiled from publicly available documentation (MOS Technology manuals, Apple II Reference Manual, DOS 3.3 Manual, Apple Technical References) and do NOT contain information derived from analyzing original ROMs.
 
+## Interactive Demo
+
+Try the cleanroom ROMs in an interactive Apple II simulation:
+
+```bash
+# Install dependency
+pip install py65
+
+# Run the demo
+python3 demo.py
+```
+
+This runs a simulated Apple II using **100% cleanroom ROMs** - no original Apple code!
+
+```
+] PRINT "HELLO WORLD"
+HELLO WORLD
+
+] 10 PRINT "CLEANROOM BASIC!"
+] 20 FOR I = 1 TO 5
+] 30 PRINT I
+] 40 NEXT I
+] RUN
+CLEANROOM BASIC!
+1
+2
+3
+4
+5
+```
+
 ## Running Tests
 
 ```bash
