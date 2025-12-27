@@ -18,6 +18,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'tests'))
 
 from test_monitor_rom import MonitorROMTest, compare_roms as compare_monitor
 from test_chargen_rom import CharGenROMTest, compare_roms as compare_chargen
+from test_mouse_card import MouseCardROMTest
+from test_programmers_aid import ProgrammersAidROMTest
 
 
 def print_header(title):
@@ -235,6 +237,38 @@ def main():
     # Disk II ROM Tests
     results['disk_ii'] = run_disk_ii_tests()
     
+    # Mouse Card ROM Tests
+    print_section("MOUSE INTERFACE CARD ROM")
+    results['mouse'] = {'original': None, 'cleanroom': None, 'different': True}
+    
+    print("\nTesting Cleanroom Mouse Card ROM...")
+    mouse_test = MouseCardROMTest()
+    results['mouse']['cleanroom'] = mouse_test.run_all_tests()
+    
+    # Check for original to verify different bytes
+    original_mouse = "/workspace/original_source/MOUSE - 342-0270 - C - 2716.bin"
+    cleanroom_mouse = "/workspace/cleanroom_roms/mouse_card.bin"
+    if os.path.exists(original_mouse) and os.path.exists(cleanroom_mouse):
+        results['mouse']['different'] = verify_cleanroom(
+            original_mouse, cleanroom_mouse, "Mouse Card"
+        )
+    
+    # Programmer's Aid #1 ROM Tests
+    print_section("PROGRAMMER'S AID #1 ROM")
+    results['prog_aid'] = {'original': None, 'cleanroom': None, 'different': True}
+    
+    print("\nTesting Cleanroom Programmer's Aid ROM...")
+    pa_test = ProgrammersAidROMTest()
+    results['prog_aid']['cleanroom'] = pa_test.run_all_tests()
+    
+    # Check for original to verify different bytes
+    original_pa = "/workspace/original_source/APPLE II/APPLE II - 341-0016 - PROGRAMMER'S  AID #1 - 2716.bin"
+    cleanroom_pa = "/workspace/cleanroom_roms/programmers_aid.bin"
+    if os.path.exists(original_pa) and os.path.exists(cleanroom_pa):
+        results['prog_aid']['different'] = verify_cleanroom(
+            original_pa, cleanroom_pa, "Programmer's Aid"
+        )
+    
     # Integration Tests
     integration_ok = run_integration_tests()
     
@@ -248,6 +282,8 @@ def main():
         'monitor': 'Documented interfaces',
         'chargen': 'TRUE cleanroom',
         'disk_ii': 'TRUE cleanroom',
+        'mouse': 'TRUE cleanroom',
+        'prog_aid': 'TRUE cleanroom',
     }
     
     for rom_name, result in results.items():

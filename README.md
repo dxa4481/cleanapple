@@ -18,6 +18,8 @@ See [CLEANROOM_PRINCIPLES.md](CLEANROOM_PRINCIPLES.md) for detailed requirements
 |-----|--------|---------------------|
 | **Character Generator** | ✅ TRUE cleanroom | Original pixel designs for ASCII characters |
 | **Disk II (P5A/P6A)** | ✅ TRUE cleanroom | Published disk format spec, hardware I/O docs |
+| **Mouse Interface Card** | ✅ TRUE cleanroom | Apple Mouse Card Technical Reference |
+| **Programmer's Aid #1** | ✅ TRUE cleanroom | Apple II Reference Manual, hi-res specs |
 | **Monitor ROM** | ⚠️ Documented interfaces | Entry points from Apple II Reference Manual |
 | **Integer BASIC** | ❌ Deleted | Was reverse-engineered (not cleanroom) |
 
@@ -29,6 +31,8 @@ ROM Type          | Functional | Different Bytes | Cleanroom Status
 MONITOR            | ✓ PASS     | ✓ YES           | Documented interfaces
 CHARGEN            | ✓ PASS     | ✓ YES           | TRUE cleanroom
 DISK II            | ✓ PASS     | ✓ YES           | TRUE cleanroom
+MOUSE              | ✓ PASS     | ✓ YES           | TRUE cleanroom
+PROG AID           | ✓ PASS     | ✓ YES           | TRUE cleanroom
 
 ✓ ALL TESTS PASSED
   - Functional tests verify correct behavior
@@ -52,6 +56,26 @@ DISK II            | ✓ PASS     | ✓ YES           | TRUE cleanroom
   - Boot loads to $0800, jumps to $0801
   - Hardware I/O at $C080-$C08F
 - **Tests**: 12/12 pass (I/O access, markers, boot sequence)
+
+### Mouse Interface Card ROM (2KB)
+- **Status**: ✅ TRUE cleanroom
+- **Method**: Implements documented firmware protocol from Apple Mouse Card Technical Reference
+- **Published specs used**:
+  - Pascal 1.1 protocol signatures ($Cn05, $Cn07, $Cn0B)
+  - Firmware entry points (SETMOUSE, READMOUSE, INITMOUSE, etc.)
+  - Screen hole storage ($0478+n, etc.)
+  - Mouse ID bytes ($CnFB = $D6)
+- **Tests**: 20/20 pass (signatures, entry points, screen holes)
+
+### Programmer's Aid #1 ROM (2KB)
+- **Status**: ✅ TRUE cleanroom
+- **Method**: Implements hi-res graphics routines from published specifications
+- **Published specs used**:
+  - Apple II Reference Manual (hi-res memory layout)
+  - Entry points (HIRES, HGR, HPLOT, HLIN, etc. at $D000+)
+  - Soft switches ($C050-$C057)
+  - Zero page locations ($E0-$EC)
+- **Tests**: 28/28 pass (entry points, soft switches, graphics routines)
 
 ### Monitor ROM (2KB)
 - **Status**: ⚠️ Documented interfaces
@@ -84,17 +108,25 @@ DISK II            | ✓ PASS     | ✓ YES           | TRUE cleanroom
 │   ├── disk_ii_p5a.bin          # Cleanroom Disk II Boot ROM
 │   ├── disk_ii_p6a.bin          # Cleanroom Disk II GCR Table
 │   ├── build_disk_ii.py         # Disk II builder
+│   ├── mouse_card.bin           # Cleanroom Mouse Interface Card
+│   ├── build_mouse_card.py      # Mouse Card builder
+│   ├── programmers_aid.bin      # Cleanroom Programmer's Aid #1
+│   ├── build_programmers_aid.py # Programmer's Aid builder
 │   ├── monitor_f800.bin         # Monitor ROM implementation
 │   └── build_monitor.py         # Monitor ROM builder
 ├── reference/
 │   ├── 6502_OPCODES.md          # 6502 instruction set reference
 │   ├── APPLE2_HARDWARE.md       # Apple II hardware/memory map
 │   ├── MONITOR_ENTRY_POINTS.md  # Monitor ROM API documentation
-│   └── AUTOSTART_MONITOR.md     # Autostart Monitor specifications
+│   ├── AUTOSTART_MONITOR.md     # Autostart Monitor specifications
+│   ├── MOUSE_CARD.md            # Mouse Interface Card specifications
+│   └── PROGRAMMERS_AID_1.md     # Programmer's Aid #1 specifications
 ├── tests/
 │   ├── test_monitor_rom.py      # Monitor functional tests
 │   ├── test_chargen_rom.py      # Character Generator tests
-│   └── test_disk_ii.py          # Disk II tests
+│   ├── test_disk_ii.py          # Disk II tests
+│   ├── test_mouse_card.py       # Mouse Interface Card tests
+│   └── test_programmers_aid.py  # Programmer's Aid tests
 ├── docs/
 │   ├── MONITOR_ROM_F800.md      # Monitor ROM documentation
 │   ├── CHARACTER_GENERATOR_ROM.md
@@ -110,8 +142,10 @@ The `reference/` directory contains **published specifications** that can be saf
 - **[APPLE2_HARDWARE.md](reference/APPLE2_HARDWARE.md)** - Apple II memory map, soft switches, I/O addresses, disk format
 - **[MONITOR_ENTRY_POINTS.md](reference/MONITOR_ENTRY_POINTS.md)** - Documented Monitor ROM entry points and their behavior
 - **[AUTOSTART_MONITOR.md](reference/AUTOSTART_MONITOR.md)** - Apple II+ Autostart Monitor specifications
+- **[MOUSE_CARD.md](reference/MOUSE_CARD.md)** - Apple Mouse Interface Card firmware protocol
+- **[PROGRAMMERS_AID_1.md](reference/PROGRAMMERS_AID_1.md)** - Hi-res graphics routines and utilities
 
-These references are compiled from publicly available documentation (MOS Technology manuals, Apple II Reference Manual, DOS 3.3 Manual) and do NOT contain information derived from analyzing original ROMs.
+These references are compiled from publicly available documentation (MOS Technology manuals, Apple II Reference Manual, DOS 3.3 Manual, Apple Technical References) and do NOT contain information derived from analyzing original ROMs.
 
 ## Running Tests
 
