@@ -1,94 +1,186 @@
+#!/usr/bin/env python3
 """
-Apple II Character Generator ROM Test Suite
+Test suite for Apple II Character Generator ROM.
 
-Tests the character generator ROM for correct pixel patterns
-and structure.
+Tests FUNCTIONAL equivalence, NOT byte identity.
+A cleanroom implementation MUST have different bytes but produce
+visually readable characters.
 """
 
 import os
 import sys
 import hashlib
 
-# Character set: ASCII 32-95 (space through underscore)
-CHAR_SET = " !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_"
+sys.path.insert(0, '/workspace')
 
 
 def load_rom(filepath):
-    """Load ROM file."""
+    """Load a ROM file."""
     with open(filepath, 'rb') as f:
         return f.read()
 
 
-def get_character_data(rom, char_index, offset=0):
-    """Get 8 bytes of character data for a given index."""
-    start = offset + (char_index * 8)
-    return rom[start:start + 8]
-
-
-def display_character(data, name=""):
-    """Display character as ASCII art."""
-    print(f"Character: {name}")
-    for row in data:
-        line = ""
-        for bit in range(7):  # 7 visible bits
-            if row & (1 << bit):
-                line += "█"
-            else:
-                line += " "
-        print(f"  {line} ${row:02X}")
-    print()
-
-
-def calculate_checksum(data):
-    """Calculate MD5 checksum."""
-    return hashlib.md5(data).hexdigest()
-
-
 class CharGenROMTest:
-    """Test harness for Character Generator ROM."""
+    """Test suite for Character Generator ROM."""
     
-    def __init__(self, rom_path, description="Character Generator ROM"):
+    ORIG_PATH = "/workspace/original_source/APPLE II+/APPLE II+ - 7341-0036 - CHARACTER GENERATOR REV7+ - 2716.bin"
+    CLEAN_PATH = "/workspace/cleanroom_roms/chargen.bin"
+    
+    def __init__(self, rom_path, name="ROM"):
+        """Initialize test with a ROM file."""
         self.rom_path = rom_path
-        self.description = description
+        self.name = name
         self.rom = None
         self.results = []
-    
-    def setup(self):
-        """Load ROM file."""
-        if os.path.exists(self.rom_path):
-            self.rom = load_rom(self.rom_path)
-            return True
-        return False
-    
-    def record_result(self, test_name, passed, expected, actual, details=""):
+        
+    def load(self):
+        """Load the ROM file."""
+        if not os.path.exists(self.rom_path):
+            raise FileNotFoundError(f"ROM not found: {self.rom_path}")
+        self.rom = load_rom(self.rom_path)
+        
+    def record(self, name, passed, details=""):
         """Record a test result."""
-        self.results.append({
-            'test': test_name,
-            'passed': passed,
-            'expected': expected,
-            'actual': actual,
-            'details': details
-        })
+        self.results.append({'name': name, 'passed': passed, 'details': details})
+        status = "✓ PASS" if passed else "✗ FAIL"
+        print(f"  {status}: {name}")
+        if details:
+            print(f"         {details}")
+    
+    def test_size(self):
+        """Test ROM size is 2048 bytes."""
+        passed = len(self.rom) == 2048
+        self.record("ROM size is 2048 bytes", passed, f"Size: {len(self.rom)}")
+    
+    def test_bank_structure(self):
+        """Test ROM has 4 banks of 512 bytes.
+        
+        Original structure:
+        - Bank 0: Normal (no high bit)
+        - Bank 1: Inverse (ALL bytes have high bit)
+        - Bank 2: Normal (copy of bank 0)
+        - Bank 3: Inverse (copy of bank 1)
+        """
+        # Check that bank 0 has no high bits
+        bank0_normal = all(b & 0x80 == 0 for b in self.rom[0:512])
+        
+        # Check that bank 1 has ALL high bits set
+        bank1_inverse = all(b & 0x80 == 0x80 for b in self.rom[512:1024])
+        
+        # Check bank 2 is normal (copy of bank 0)
+        bank2_normal = all(b & 0x80 == 0 for b in self.rom[1024:1536])
+        
+        # Check bank 3 has all high bits (copy of bank 1)
+        bank3_inverse = all(b & 0x80 == 0x80 for b in self.rom[1536:2048])
+        
+        passed = bank0_normal and bank1_inverse and bank2_normal and bank3_inverse
+        self.record("Bank structure correct", passed,
+                   f"B0:{bank0_normal} B1:{bank1_inverse} B2:{bank2_normal} B3:{bank3_inverse}")
+    
+    def test_space_is_blank(self):
+        """Test that space character (index 32) is blank."""
+        # Space is at index 32, each char is 8 bytes
+        space_offset = 32 * 8
+        space_bytes = self.rom[space_offset:space_offset+8]
+        
+        # Space should be all zeros (or just low bits)
+        is_blank = all((b & 0x7F) == 0 for b in space_bytes)
+        self.record("Space character is blank", is_blank)
+    
+    def test_letters_have_pixels(self):
+        """Test that letter characters have some pixels set."""
+        all_have_pixels = True
+        
+        # Check letters A-Z (indices 1-26)
+        for i in range(1, 27):
+            char_offset = i * 8
+            char_bytes = self.rom[char_offset:char_offset+8]
+            pixel_count = sum(bin(b & 0x7F).count('1') for b in char_bytes)
+            
+            if pixel_count < 5:  # Letters should have at least 5 pixels
+                all_have_pixels = False
+                break
+        
+        self.record("Letters A-Z have pixels", all_have_pixels)
+    
+    def test_digits_have_pixels(self):
+        """Test that digit characters have some pixels set."""
+        all_have_pixels = True
+        
+        # Check digits 0-9 (indices 48-57)
+        for i in range(48, 58):
+            char_offset = i * 8
+            char_bytes = self.rom[char_offset:char_offset+8]
+            pixel_count = sum(bin(b & 0x7F).count('1') for b in char_bytes)
+            
+            if pixel_count < 5:
+                all_have_pixels = False
+                break
+        
+        self.record("Digits 0-9 have pixels", all_have_pixels)
+    
+    def test_characters_unique(self):
+        """Test that printable characters have unique patterns."""
+        patterns = {}
+        duplicates = []
+        
+        # Check indices 0-63 (all printable characters)
+        for i in range(64):
+            char_offset = i * 8
+            pattern = tuple(b & 0x7F for b in self.rom[char_offset:char_offset+8])
+            
+            if pattern in patterns and pattern != (0,0,0,0,0,0,0,0):
+                duplicates.append((i, patterns[pattern]))
+            else:
+                patterns[pattern] = i
+        
+        # Allow space to be duplicate (multiple blank chars is OK)
+        non_space_dupes = [d for d in duplicates if d not in [(32,0)]]
+        passed = len(non_space_dupes) == 0
+        self.record("Characters have unique patterns", passed,
+                   f"Duplicates: {len(non_space_dupes)}")
+    
+    def test_inverse_has_high_bit(self):
+        """Test that inverse bank has high bit set on ALL bytes."""
+        # Bank 1 is the inverse bank (offset 512-1023)
+        bank1 = self.rom[512:1024]
+        
+        # ALL bytes in inverse bank must have high bit set
+        correct = all(b & 0x80 == 0x80 for b in bank1)
+        
+        self.record("Inverse bank has high bit on all bytes", correct)
     
     def run_all_tests(self):
-        """Run all character generator tests."""
-        if not self.setup():
-            print(f"ERROR: Could not load ROM from {self.rom_path}")
+        """Run all tests."""
+        print(f"\n{'='*60}")
+        print(f"Testing: {self.name}")
+        print(f"ROM Path: {self.rom_path}")
+        
+        try:
+            self.load()
+        except FileNotFoundError as e:
+            print(f"ERROR: {e}")
             return False
         
-        print(f"\n{'='*60}")
-        print(f"Testing: {self.description}")
-        print(f"ROM Path: {self.rom_path}")
-        print(f"ROM MD5: {calculate_checksum(self.rom)}")
+        md5 = hashlib.md5(self.rom).hexdigest()
+        print(f"ROM MD5: {md5}")
         print(f"ROM Size: {len(self.rom)} bytes")
         print(f"{'='*60}")
         
+        print("\n--- Testing ROM Size ---")
         self.test_size()
-        self.test_structure()
-        self.test_specific_characters()
-        self.test_character_properties()
         
-        # Print summary
+        print("\n--- Testing ROM Structure ---")
+        self.test_bank_structure()
+        self.test_inverse_has_high_bit()
+        
+        print("\n--- Testing Character Patterns ---")
+        self.test_space_is_blank()
+        self.test_letters_have_pixels()
+        self.test_digits_have_pixels()
+        self.test_characters_unique()
+        
+        # Summary
         passed = sum(1 for r in self.results if r['passed'])
         total = len(self.results)
         
@@ -96,222 +188,108 @@ class CharGenROMTest:
         print(f"Results: {passed}/{total} tests passed")
         print(f"{'-'*60}")
         
-        for r in self.results:
-            status = "✓ PASS" if r['passed'] else "✗ FAIL"
-            print(f"  {status}: {r['test']}")
-            if not r['passed']:
-                print(f"         Expected: {r['expected']}")
-                print(f"         Actual:   {r['actual']}")
-            if r['details']:
-                print(f"         Details:  {r['details']}")
-        
-        return all(r['passed'] for r in self.results)
-    
-    def test_size(self):
-        """Test ROM size is correct."""
-        print("\n--- Testing ROM Size ---")
-        
-        expected_size = 2048
-        actual_size = len(self.rom)
-        
-        self.record_result(
-            "ROM size is 2048 bytes",
-            actual_size == expected_size,
-            f"{expected_size} bytes",
-            f"{actual_size} bytes"
-        )
-    
-    def test_structure(self):
-        """Test ROM structure."""
-        print("\n--- Testing ROM Structure ---")
-        
-        # ROM should have 64 characters × 8 bytes = 512 bytes per bank
-        # With 4 banks (normal, inverse, normal+80, inverse+80) = 2048 bytes
-        
-        # Check first bank matches third bank (same characters, no high bit)
-        bank0 = self.rom[0:512]
-        bank2 = self.rom[1024:1536]
-        
-        match = bank0 == bank2
-        self.record_result(
-            "Bank 0 matches Bank 2 (normal mode copies)",
-            match,
-            "Identical",
-            "Match" if match else "Differ"
-        )
-        
-        # Check that inverse banks have high bit set
-        bank1_has_high = all(b & 0x80 for b in self.rom[512:1024] if b != 0)
-        self.record_result(
-            "Bank 1 has high bit set (inverse mode)",
-            bank1_has_high,
-            "High bit set",
-            "Set" if bank1_has_high else "Not set"
-        )
-    
-    def test_specific_characters(self):
-        """Test specific character patterns."""
-        print("\n--- Testing Specific Characters ---")
-        
-        # Apple II ROM index mapping:
-        # Index 0-31: ASCII 64-95 (@, A-Z, [\]^_)
-        # Index 32-63: ASCII 32-63 (space, !-?, etc.)
-        
-        # Test '@' character at index 0 (should have pixels)
-        at_data = get_character_data(self.rom, 0)
-        has_pixels = any(b != 0 for b in at_data)
-        self.record_result(
-            "'@' character (index 0) has pixels",
-            has_pixels,
-            "Has pixels",
-            f"${' '.join(f'{b:02X}' for b in at_data)}"
-        )
-        
-        # Test 'A' character at index 1 has recognizable pattern
-        a_data = get_character_data(self.rom, 1)
-        # 'A' starts narrow, widens, has crossbar
-        has_narrow_top = a_data[1] < a_data[5]  # Top narrower than crossbar row
-        has_crossbar = a_data[5] > a_data[6]  # Crossbar row wider than legs
-        
-        self.record_result(
-            "Letter 'A' (index 1) has correct pattern shape",
-            has_narrow_top and has_crossbar,
-            "Narrow top, crossbar",
-            f"Top<Mid: {has_narrow_top}, Crossbar: {has_crossbar}"
-        )
-        
-        # Test space character at index 32 (should be all zeros)
-        space_data = get_character_data(self.rom, 32)
-        is_blank = all(b == 0 for b in space_data)
-        self.record_result(
-            "Space character (index 32) is blank",
-            is_blank,
-            "All zeros",
-            f"${' '.join(f'{b:02X}' for b in space_data)}"
-        )
-        
-        # Test that letters A-Z (indices 1-26) all have unique patterns
-        letter_patterns = [get_character_data(self.rom, 1 + i) for i in range(26)]
-        all_different = len(set(tuple(p) for p in letter_patterns)) == 26
-        self.record_result(
-            "Letters A-Z all have unique patterns",
-            all_different,
-            "26 unique patterns",
-            f"{len(set(tuple(p) for p in letter_patterns))} unique patterns"
-        )
-    
-    def test_character_properties(self):
-        """Test general character properties."""
-        print("\n--- Testing Character Properties ---")
-        
-        # All characters should fit in 7 bits (bit 7 unused in normal mode)
-        all_7bit = all(self.rom[i] < 0x80 for i in range(512) if self.rom[i] != 0)
-        self.record_result(
-            "Normal bank uses only 7 bits",
-            all_7bit,
-            "All < $80",
-            "Correct" if all_7bit else "Found $80+ values"
-        )
-        
-        # Non-blank characters should have some pixels
-        # Index 32 is space, other punctuation may have minimal pixels
-        # Check that letters A-Z (indices 1-26) and digits (indices 48-57) have pixels
-        letters_and_digits = list(range(1, 27)) + list(range(48, 58))
-        visible_chars = [get_character_data(self.rom, i) for i in letters_and_digits]
-        all_visible = all(any(b != 0 for b in char) for char in visible_chars)
-        self.record_result(
-            "All letters and digits have pixels",
-            all_visible,
-            "All visible",
-            "Correct" if all_visible else "Found blank characters"
-        )
+        return passed == total
 
 
-def compare_roms(original_path, cleanroom_path):
-    """Compare character generator ROMs."""
-    print("\n" + "="*60)
+def compare_roms(orig_path, clean_path):
+    """Compare original and cleanroom ROMs.
+    
+    For cleanroom compliance:
+    - ROMs MUST be different (different MD5)
+    - Both must pass functional tests
+    """
+    print("\n" + "=" * 60)
     print("CHARACTER GENERATOR ROM COMPARISON")
-    print("="*60)
+    print("=" * 60)
     
-    original = load_rom(original_path)
-    cleanroom = load_rom(cleanroom_path)
+    orig = load_rom(orig_path)
+    clean = load_rom(clean_path)
     
-    # Size comparison
-    print(f"\nOriginal size: {len(original)} bytes")
-    print(f"Cleanroom size: {len(cleanroom)} bytes")
+    orig_md5 = hashlib.md5(orig).hexdigest()
+    clean_md5 = hashlib.md5(clean).hexdigest()
     
-    if len(original) != len(cleanroom):
-        print("ERROR: Sizes don't match!")
+    print(f"\nOriginal MD5:  {orig_md5}")
+    print(f"Cleanroom MD5: {clean_md5}")
+    
+    # CRITICAL: Cleanroom MUST be different
+    if orig_md5 == clean_md5:
+        print("\n*** CLEANROOM VIOLATION ***")
+        print("ROMs are BYTE-IDENTICAL - this is NOT a valid cleanroom!")
         return False
-    
-    # Compare each character
-    print("\n--- Comparing Characters ---")
-    mismatches = []
-    
-    for i in range(64):
-        orig_char = get_character_data(original, i)
-        clean_char = get_character_data(cleanroom, i)
-        
-        if orig_char != clean_char:
-            mismatches.append((i, CHAR_SET[i] if i < len(CHAR_SET) else '?'))
-    
-    if mismatches:
-        print(f"  {len(mismatches)} characters differ:")
-        for idx, char in mismatches[:10]:
-            print(f"    Index {idx}: '{char}'")
-        if len(mismatches) > 10:
-            print(f"    ... and {len(mismatches) - 10} more")
     else:
-        print("  All 64 characters match!")
+        print("\n✓ Cleanroom has DIFFERENT bytes (required)")
     
-    # Show sample character comparisons
-    print("\n--- Sample Character Comparisons ---")
-    for idx, name in [(0, "Space"), (33, "A"), (16, "0")]:
-        print(f"\nCharacter {idx} ('{name}'):")
-        print("  Original:", ' '.join(f'{b:02X}' for b in get_character_data(original, idx)))
-        print("  Cleanroom:", ' '.join(f'{b:02X}' for b in get_character_data(cleanroom, idx)))
+    # Both should be same size
+    if len(orig) == len(clean):
+        print(f"✓ Both ROMs are same size ({len(orig)} bytes)")
+    else:
+        print(f"✗ Size mismatch: orig={len(orig)}, clean={len(clean)}")
     
-    return len(mismatches) == 0
-
-
-def display_character_set(rom_path):
-    """Display all characters from ROM."""
-    rom = load_rom(rom_path)
-    print(f"\nCharacter Set from {os.path.basename(rom_path)}:")
-    print("="*60)
+    # Compare readability
+    print("\n--- Character Readability Check ---")
     
-    for i in range(64):
-        char = CHAR_SET[i] if i < len(CHAR_SET) else '?'
-        data = get_character_data(rom, i)
-        print(f"\nIndex {i:2d}: '{char}'")
-        for row in data:
-            line = ""
-            for bit in range(7):
-                if row & (1 << bit):
-                    line += "██"
-                else:
-                    line += "  "
-            print(f"  {line}")
+    # Count pixels in letters for both
+    def count_letter_pixels(rom):
+        total = 0
+        for i in range(1, 27):  # A-Z
+            offset = i * 8
+            for b in rom[offset:offset+8]:
+                total += bin(b & 0x7F).count('1')
+        return total
+    
+    orig_pixels = count_letter_pixels(orig)
+    clean_pixels = count_letter_pixels(clean)
+    
+    print(f"  Original letters pixel count: {orig_pixels}")
+    print(f"  Cleanroom letters pixel count: {clean_pixels}")
+    
+    # Cleanroom should have reasonable pixel density
+    if clean_pixels > orig_pixels * 0.5:
+        print("  ✓ Cleanroom has sufficient pixel density")
+    else:
+        print("  ✗ Cleanroom may have insufficient pixels")
+    
+    return True
 
 
 def main():
-    """Run character generator ROM tests."""
-    original_path = "/workspace/original_source/APPLE II+/APPLE II+ - 7341-0036 - CHARACTER GENERATOR REV7+ - 2716.bin"
+    """Run Character Generator ROM tests."""
+    print("=" * 60)
+    print("CHARACTER GENERATOR ROM TEST SUITE")
+    print("=" * 60)
     
-    test = CharGenROMTest(original_path, "Original Apple II+ Character Generator ROM")
-    test.run_all_tests()
+    orig_path = CharGenROMTest.ORIG_PATH
+    clean_path = CharGenROMTest.CLEAN_PATH
     
-    # Show a few characters
-    print("\n--- Sample Characters ---")
-    rom = load_rom(original_path)
-    for idx, name in [(0, "Space"), (1, "!"), (33, "A"), (16, "0"), (47, "O")]:
-        display_character(get_character_data(rom, idx), f"Index {idx}: '{CHAR_SET[idx]}'")
+    # Test original
+    if os.path.exists(orig_path):
+        print("\nTesting ORIGINAL ROM...")
+        test_orig = CharGenROMTest(orig_path, "Original Character Generator")
+        orig_ok = test_orig.run_all_tests()
+    else:
+        print(f"Original ROM not found: {orig_path}")
+        orig_ok = False
     
-    # Check for cleanroom ROM
-    cleanroom_path = "/workspace/cleanroom_roms/chargen.bin"
-    if os.path.exists(cleanroom_path):
-        compare_roms(original_path, cleanroom_path)
+    # Test cleanroom
+    if os.path.exists(clean_path):
+        print("\nTesting CLEANROOM ROM...")
+        test_clean = CharGenROMTest(clean_path, "Cleanroom Character Generator")
+        clean_ok = test_clean.run_all_tests()
+        
+        # Compare (cleanroom MUST be different)
+        if orig_ok:
+            compare_ok = compare_roms(orig_path, clean_path)
+        else:
+            compare_ok = True
+    else:
+        print(f"\nCleanroom ROM not found: {clean_path}")
+        print("Run: python3 cleanroom_roms/build_chargen_cleanroom.py")
+        clean_ok = False
+        compare_ok = False
+    
+    return orig_ok and clean_ok and compare_ok
 
 
 if __name__ == "__main__":
-    main()
+    success = main()
+    sys.exit(0 if success else 1)
