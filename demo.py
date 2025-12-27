@@ -2,13 +2,15 @@
 """
 Apple II Cleanroom ROM Demo - Authentic Character ROM Display
 
-Renders text using the cleanroom character generator ROM with pixel-perfect display.
-Uses Unicode half-blocks to show actual character ROM patterns in a normal terminal.
+Renders ALL text using the cleanroom character generator ROM.
+Uses raw terminal input to render keypresses through the character ROM.
 """
 
 import os
 import sys
 import time
+import tty
+import termios
 
 # ANSI escape codes
 ESC = "\033"
@@ -18,10 +20,9 @@ HIDE_CURSOR = f"{ESC}[?25l"
 SHOW_CURSOR = f"{ESC}[?25h"
 
 # Apple II phosphor green
-GREEN = f"{ESC}[38;2;51;255;51m"   # Bright phosphor
-DIM = f"{ESC}[38;2;20;80;20m"      # Dim green
-BG = f"{ESC}[48;2;2;12;2m"         # Dark CRT background
-AMBER = f"{ESC}[38;2;255;176;0m"   # Alternative: amber phosphor
+GREEN = f"{ESC}[38;2;51;255;51m"
+DIM = f"{ESC}[38;2;20;80;20m"
+BG = f"{ESC}[48;2;2;12;2m"
 
 
 class CharacterROM:
@@ -39,33 +40,22 @@ class CharacterROM:
         if os.path.exists(rom_path):
             with open(rom_path, 'rb') as f:
                 rom = f.read()
-            # Bank 0: normal characters, 64 chars * 8 bytes
-            # Index 0-31: @ through _ (ASCII 64-95)
-            # Index 32-63: space through ? (ASCII 32-63)
             for i in range(64):
                 self.patterns[i] = list(rom[i*8:(i+1)*8])
-            print(f"  Loaded character ROM: {len(rom)} bytes")
         else:
-            print("  Warning: Character ROM not found, using fallback")
-            self._generate_fallback()
-    
-    def _generate_fallback(self):
-        """Generate minimal patterns if ROM not found."""
-        # Just space
-        for i in range(64):
-            self.patterns[i] = [0] * 8
+            for i in range(64):
+                self.patterns[i] = [0] * 8
     
     def get_pattern(self, char):
         """Get 8-byte pattern for a character."""
         c = ord(char) if isinstance(char, str) else char
         
-        # Map ASCII to ROM index
         if 64 <= c <= 95:      # @ through _
             idx = c - 64
         elif 32 <= c <= 63:    # space through ?
             idx = c
         elif 97 <= c <= 122:   # lowercase -> uppercase
-            idx = c - 97 + 1   # A=1, B=2, etc
+            idx = c - 97 + 1
         else:
             idx = 32           # space
         
@@ -75,21 +65,22 @@ class CharacterROM:
 class PixelDisplay:
     """
     Renders Apple II screen using actual character ROM pixels.
-    Uses Unicode half-blocks for compact display.
+    Double-width pixels for correct aspect ratio.
     """
     
     # Half-block characters for 2 vertical pixels per cell
     BLOCKS = {
-        (0, 0): ' ',   # Neither pixel lit
-        (1, 0): '▀',   # Top pixel lit
-        (0, 1): '▄',   # Bottom pixel lit  
-        (1, 1): '█',   # Both pixels lit
+        (0, 0): ' ',
+        (1, 0): '▀',
+        (0, 1): '▄',
+        (1, 1): '█',
     }
     
-    def __init__(self, charrom, cols=40, rows=24):
+    def __init__(self, charrom, cols=40, rows=24, double_wide=True):
         self.charrom = charrom
         self.cols = cols
         self.rows = rows
+        self.double_wide = double_wide  # Double horizontal pixels for aspect ratio
         self.screen = [[' ' for _ in range(cols)] for _ in range(rows)]
         self.cx, self.cy = 0, 0
     
@@ -113,12 +104,13 @@ class PixelDisplay:
             self.newline()
         elif ch == '\r':
             self.cx = 0
-        elif ch == '\b':
+        elif ch == '\b' or ch == '\x7f':
             if self.cx > 0:
                 self.cx -= 1
+                self.screen[self.cy][self.cx] = ' '
         else:
             if 0 <= self.cy < self.rows and 0 <= self.cx < self.cols:
-                self.screen[self.cy][self.cx] = ch
+                self.screen[self.cy][self.cx] = ch.upper() if ch.isalpha() else ch
                 self.cx += 1
                 if self.cx >= self.cols:
                     self.newline()
@@ -127,23 +119,23 @@ class PixelDisplay:
         for ch in text:
             self.putchar(ch)
     
-    def render_to_pixels(self, show_cursor=True):
-        """Convert text screen to pixel buffer."""
-        # Each char is 7 wide x 8 tall
+    def render(self, blink_cursor=True):
+        """Render screen using character ROM pixels."""
+        # Each char is 7 wide x 8 tall pixels
         pw = self.cols * 7
         ph = self.rows * 8
         pixels = [[0 for _ in range(pw)] for _ in range(ph)]
         
+        # Render all characters to pixel buffer
         for ty in range(self.rows):
             for tx in range(self.cols):
                 ch = self.screen[ty][tx]
-                # Cursor
-                if show_cursor and tx == self.cx and ty == self.cy:
-                    pattern = [0x7F] * 8  # Solid block
+                # Cursor: solid block
+                if blink_cursor and tx == self.cx and ty == self.cy:
+                    pattern = [0x7F] * 8
                 else:
                     pattern = self.charrom.get_pattern(ch)
                 
-                # Plot pixels
                 px = tx * 7
                 py = ty * 8
                 for row in range(8):
@@ -152,32 +144,30 @@ class PixelDisplay:
                         if byte_val & (1 << bit):
                             pixels[py + row][px + bit] = 1
         
-        return pixels
-    
-    def render(self):
-        """Render screen using half-blocks."""
-        pixels = self.render_to_pixels()
-        ph = len(pixels)
-        pw = len(pixels[0]) if pixels else 0
-        
+        # Output to terminal
         print(CLEAR + HIDE_CURSOR, end='')
         print(f"{GREEN}{BG}")
         
-        # Top border
-        print("  ╔" + "═" * (pw + 2) + "╗")
+        # Border width depends on double_wide mode
+        bw = pw * 2 + 2 if self.double_wide else pw + 2
+        print("╔" + "═" * bw + "╗")
         
         # Render 2 pixel rows at a time using half-blocks
         for y in range(0, ph, 2):
-            print("  ║ ", end="")
+            print("║ ", end="")
             for x in range(pw):
                 top = pixels[y][x] if y < ph else 0
                 bot = pixels[y+1][x] if y+1 < ph else 0
-                print(self.BLOCKS[(top, bot)], end="")
+                block = self.BLOCKS[(top, bot)]
+                if self.double_wide:
+                    print(block * 2, end="")  # Double width for aspect ratio
+                else:
+                    print(block, end="")
             print(" ║")
         
-        # Bottom border
-        print("  ╚" + "═" * (pw + 2) + "╝")
-        print(f"{DIM}        [APPLE II CLEANROOM - CHARACTER ROM DISPLAY]{RESET}")
+        print("╚" + "═" * bw + "╝")
+        print(f"{DIM}  [APPLE II CLEANROOM - CHARACTER ROM]{RESET}")
+        sys.stdout.flush()
 
 
 class SimpleDisplay:
@@ -209,9 +199,13 @@ class SimpleDisplay:
             self.newline()
         elif ch == '\r':
             self.cx = 0
+        elif ch == '\b' or ch == '\x7f':
+            if self.cx > 0:
+                self.cx -= 1
+                self.screen[self.cy][self.cx] = ' '
         else:
             if 0 <= self.cy < self.rows and 0 <= self.cx < self.cols:
-                self.screen[self.cy][self.cx] = ch
+                self.screen[self.cy][self.cx] = ch.upper() if ch.isalpha() else ch
                 self.cx += 1
                 if self.cx >= self.cols:
                     self.newline()
@@ -220,21 +214,42 @@ class SimpleDisplay:
         for ch in text:
             self.putchar(ch)
     
-    def render(self):
+    def render(self, blink_cursor=True):
         print(CLEAR + HIDE_CURSOR, end='')
         print(f"{GREEN}{BG}")
-        print("  ┌" + "─" * 42 + "┐")
+        print("┌" + "─" * 42 + "┐")
         for y, row in enumerate(self.screen):
             line = ''.join(row)
-            if y == self.cy and self.cx < self.cols:
+            if blink_cursor and y == self.cy and self.cx < self.cols:
                 line = line[:self.cx] + '█' + line[self.cx+1:]
-            print(f"  │ {line} │")
-        print("  └" + "─" * 42 + "┘")
-        print(f"{DIM}           [APPLE II CLEANROOM]{RESET}")
+            print(f"│ {line} │")
+        print("└" + "─" * 42 + "┘")
+        print(f"{DIM}     [APPLE II CLEANROOM]{RESET}")
+        sys.stdout.flush()
+
+
+class RawInput:
+    """Handle raw terminal input for character-by-character reading."""
+    
+    def __init__(self):
+        self.fd = sys.stdin.fileno()
+        self.old_settings = None
+    
+    def __enter__(self):
+        self.old_settings = termios.tcgetattr(self.fd)
+        tty.setraw(self.fd)
+        return self
+    
+    def __exit__(self, *args):
+        termios.tcsetattr(self.fd, termios.TCSADRAIN, self.old_settings)
+    
+    def getch(self):
+        """Read a single character."""
+        return sys.stdin.read(1)
 
 
 class Apple2:
-    """Apple II BASIC interpreter."""
+    """Apple II BASIC interpreter with pixel-perfect display."""
     
     def __init__(self, display):
         self.display = display
@@ -247,28 +262,59 @@ class Apple2:
         self.display.write("\n]")
         self.display.render()
         
+        try:
+            with RawInput():
+                self._main_loop()
+        except Exception as e:
+            print(f"{RESET}{SHOW_CURSOR}")
+            raise
+    
+    def _main_loop(self):
+        """Main loop with raw input handling."""
+        line_buffer = ""
+        
         while True:
-            try:
-                print(f"{GREEN}]{RESET} ", end='', flush=True)
-                line = input().upper().strip()
+            ch = sys.stdin.read(1)
+            
+            if ch == '\x03':  # Ctrl+C
+                print(f"{RESET}{SHOW_CURSOR}")
+                sys.exit(0)
+            elif ch == '\x04':  # Ctrl+D
+                print(f"{RESET}{SHOW_CURSOR}")
+                sys.exit(0)
+            elif ch == '\r' or ch == '\n':  # Enter
+                self.display.putchar('\n')
                 
-                self.display.write(line + "\n")
+                cmd = line_buffer.upper().strip()
+                line_buffer = ""
                 
-                if line in ('QUIT', 'EXIT', 'BYE'):
-                    print(f"\n{RESET}{SHOW_CURSOR}Goodbye!")
-                    break
+                if cmd in ('QUIT', 'EXIT', 'BYE'):
+                    self.display.write("GOODBYE\n")
+                    self.display.render()
+                    time.sleep(0.5)
+                    print(f"{RESET}{SHOW_CURSOR}")
+                    return
                 
-                if line:
-                    result = self.execute(line)
+                if cmd:
+                    result = self.execute(cmd)
                     if result:
                         self.display.write(result)
                 
                 self.display.write("]")
                 self.display.render()
                 
-            except (KeyboardInterrupt, EOFError):
-                print(f"\n{RESET}{SHOW_CURSOR}Goodbye!")
-                break
+            elif ch == '\x7f' or ch == '\b':  # Backspace
+                if line_buffer:
+                    line_buffer = line_buffer[:-1]
+                    self.display.putchar('\b')
+                    self.display.render()
+            elif ch == '\x1b':  # Escape sequence (arrow keys etc)
+                # Read and discard escape sequences
+                sys.stdin.read(2)
+            elif 32 <= ord(ch) <= 126:  # Printable ASCII
+                line_buffer += ch
+                self.display.putchar(ch)
+                self.display.render()
     
     def execute(self, line):
         if not line:
@@ -330,7 +376,7 @@ class Apple2:
                 i += 1
             elif args[i] in ';,':
                 if args[i] == ',':
-                    result.append('        ')  # Tab
+                    result.append('        ')
                 i += 1
             else:
                 j = i
@@ -390,7 +436,6 @@ class Apple2:
                 target = int(args)
                 pc = lines.index(target) if target in lines else len(lines)
             elif cmd == 'FOR':
-                # FOR I=1 TO 10
                 p = args.replace('=', ' ').split()
                 var = p[0]
                 start = int(p[1])
@@ -415,13 +460,10 @@ class Apple2:
                 else:
                     pc += 1
             elif cmd == 'IF':
-                # IF X>5 THEN 100
                 cond_end = code.find(' THEN ')
                 cond = code[2:cond_end].strip()
                 then = code[cond_end+6:].strip()
                 cond = cond.replace('=', '==').replace('<>', '!=').replace('><', '!=')
-                # Fix <= and >= that got double-equals
-                cond = cond.replace('<=', ' <= ').replace('>=', ' >= ')
                 cond = cond.replace('<==', '<=').replace('>==', '>=')
                 try:
                     if eval(cond, {"__builtins__": {}}, self.variables):
@@ -465,7 +507,7 @@ def boot_screen():
     print("  ║                                                      ║")
     print("  ╚══════════════════════════════════════════════════════╝")
     print()
-    
+
 
 def load_roms():
     """Load and display ROM status."""
@@ -481,32 +523,27 @@ def load_roms():
     print("  Loading cleanroom ROMs...")
     print()
     
-    loaded = {}
     for path, name, expected_size in roms:
         full = os.path.join(base, path)
         if os.path.exists(full):
             size = os.path.getsize(full)
             status = "✓" if size == expected_size else "?"
-            print(f"    {status} {name}")
-            print(f"      {size} bytes at {path}")
-            loaded[name] = full
-            time.sleep(0.1)
+            print(f"    {status} {name} ({size} bytes)")
+            time.sleep(0.08)
         else:
             print(f"    ✗ {name} - NOT FOUND")
-    
-    return loaded
 
 
 def main():
     boot_screen()
-    loaded = load_roms()
+    load_roms()
     
     print()
     print("  Select display mode:")
     print()
-    print("    1. Simple mode   - 40x24 text, green phosphor look")
-    print("    2. Pixel mode    - Uses actual character ROM patterns")
-    print("                       (needs ~290 column terminal)")
+    print("    1. Simple    - 40x24 text, green phosphor")
+    print("    2. Pixel     - Character ROM, double-wide (560x96)")
+    print("    3. Pixel 1:1 - Character ROM, single-wide (280x96)")
     print()
     print(f"{RESET}", end='')
     
@@ -520,9 +557,19 @@ def main():
     
     if choice == '2':
         charrom = CharacterROM()
-        display = PixelDisplay(charrom)
+        display = PixelDisplay(charrom, double_wide=True)
+        print("  Pixel mode (double-wide) - needs ~565 column terminal")
+    elif choice == '3':
+        charrom = CharacterROM()
+        display = PixelDisplay(charrom, double_wide=False)
+        print("  Pixel mode (1:1) - needs ~285 column terminal")
     else:
         display = SimpleDisplay()
+        print("  Simple mode - works in any terminal")
+    
+    print("  Type QUIT to exit")
+    print()
+    time.sleep(0.5)
     
     apple = Apple2(display)
     apple.run()
