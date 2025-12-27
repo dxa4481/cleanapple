@@ -451,6 +451,25 @@ def make_rom():
     ])
     
     # =========================================================================
+    # $FF58: IORTS - Return slot*16 from stack
+    # Used by peripheral cards to determine their slot number.
+    # The return address on the stack contains $Cn, where n is the slot.
+    # This routine extracts n*16 and returns it in A.
+    #
+    # DOCUMENTED in Apple II Reference Manual as a standard way for
+    # peripheral cards to determine their slot number.
+    # =========================================================================
+    write_at(0xFF58, [
+        0xBA,               # TSX - get stack pointer
+        0xBD, 0x00, 0x01,   # LDA $0100,X - get return address low byte from stack
+        0x0A,               # ASL A - shift $Cn -> $n0
+        0x0A,               # ASL A
+        0x0A,               # ASL A
+        0x0A,               # ASL A - A now contains slot*16
+        0x60,               # RTS
+    ])
+    
+    # =========================================================================
     # $FF59: RESET - Main reset entry point
     # =========================================================================
     write_at(0xFF59, [

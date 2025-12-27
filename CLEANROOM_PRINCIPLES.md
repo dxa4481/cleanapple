@@ -1,106 +1,102 @@
 # Cleanroom Implementation Principles
 
-## CRITICAL LEGAL REQUIREMENT
+## What TRUE Cleanroom Means
 
-**A cleanroom implementation MUST NOT produce byte-for-byte identical code to the original.**
+A cleanroom implementation is code written **ONLY** from published specifications, without ever examining the original code.
 
-If a cleanroom ROM has the same MD5 hash as the original, it is **NOT** a cleanroom implementation - it is a copy, which violates copyright law.
+### Requirements for TRUE Cleanroom
 
-## What Cleanroom Means
+1. **Published Specifications Only**
+   - Apple II Reference Manual
+   - DOS 3.3 disk format documentation
+   - Hardware interface specifications
+   - Published API documentation
 
-A cleanroom implementation is code that:
+2. **No Reverse Engineering**
+   - Never disassemble original ROM
+   - Never analyze original code behavior to understand algorithms
+   - Never copy instruction sequences
 
-1. **Implements the same FUNCTIONALITY** as the original
-2. **Produces the same OUTPUTS** for the same inputs
-3. **Uses DIFFERENT CODE** to achieve those results
-4. **Is written independently** based only on:
-   - Published documentation
-   - Observed external behavior
-   - Interface specifications
+3. **Original Algorithm Design**
+   - Implement your own algorithm to achieve documented behavior
+   - Your code structure will naturally differ from original
+   - Different byte sequences are the RESULT, not the GOAL
 
-## What Cleanroom Does NOT Mean
+### What Cleanroom Does NOT Mean
 
-- Copying original bytes
-- Disassembling and transcribing original code
-- Producing byte-identical binaries
-- Using the same internal algorithms (unless independently derived)
+- Making bytes "different" by adding NOPs
+- Copying code and rearranging it
+- Reverse-engineering then reimplementing
 
-## Verification Requirements
+## This Project's Cleanroom Status
+
+### ✅ TRUE Cleanroom
+
+| ROM | Evidence |
+|-----|----------|
+| **Character Generator** | Original pixel designs created from ASCII character shapes |
+| **Disk II P5A/P6A** | Original boot algorithm from published disk format spec |
+
+### ⚠️ Partial Cleanroom (Documented Interfaces)
+
+| ROM | Notes |
+|-----|-------|
+| **Monitor ROM** | Entry points from Apple II Reference Manual, standard algorithms |
+
+The Monitor ROM implements documented entry points ($FDDA PRBYTE, $FBC1 BASCALC, etc.) using standard algorithms. The screen memory layout is documented in the Reference Manual, so BASCALC can be independently derived.
+
+### ❌ NOT Cleanroom (Deleted)
+
+| ROM | Why Deleted |
+|-----|-------------|
+| **Integer BASIC** | Algorithm was reverse-engineered from disassembly |
+
+Integer BASIC was deleted because the PRTNUM routine and other code was derived by disassembling and analyzing the original ROM, then reimplementing. This is reverse engineering, not cleanroom.
+
+## Verification
 
 For each cleanroom ROM:
 
-| Check | Pass Criteria |
-|-------|--------------|
-| MD5 Hash | MUST be DIFFERENT from original |
-| Functional Tests | MUST produce same outputs |
-| Size | Should match (for compatibility) |
-| Interface | MUST match documented entry points |
+| Check | Purpose |
+|-------|---------|
+| Different MD5 | Natural result of independent implementation |
+| Functional tests | Verify documented behavior is achieved |
+| Source documentation | Must cite published spec, not "original algorithm" |
 
-## Implementation Process
+## How to Implement True Cleanroom
 
-### Step 1: Document the Interface
-- Entry points and their expected behavior
-- Input/output specifications  
-- Side effects (memory, registers)
-- Timing requirements (if critical)
+### Step 1: Gather Published Specs
+- Find official documentation
+- Note interfaces, inputs, outputs
+- Do NOT look at original code
 
-### Step 2: Implement Independently
-- Write new code based ONLY on documentation
-- Do NOT look at disassembly while coding
-- Use your own algorithms to achieve the same results
-- Make different implementation choices where possible
+### Step 2: Design Your Algorithm
+- Figure out how YOU would solve the problem
+- Use your own code structure
+- Make your own design decisions
 
-### Step 3: Verify Functionality
-- Test that outputs match for all documented inputs
-- Verify register states after calls
-- Check memory modifications
-- Confirm timing (if critical)
+### Step 3: Implement and Test
+- Write code based on YOUR design
+- Test against documented behavior
+- If tests fail, fix YOUR code (don't peek at original)
 
-### Step 4: Confirm Non-Identity
-- Calculate MD5 of cleanroom ROM
-- Compare to original ROM MD5
-- **If identical, the implementation has FAILED**
-- Re-implement with different approach
+### Example: Disk II Boot ROM
 
-## Examples
+**Published spec says:**
+- Load sector 0, track 0 into $0800
+- Jump to $0801
+- Disk format uses D5 AA 96 / D5 AA AD markers
+- 6-and-2 GCR encoding
 
-### CORRECT: Monitor ROM
-```
-Original MD5:  bc0163ca04c463e06f99fb029ad21b1f
-Cleanroom MD5: d4c6dad016151c21fb03679205bbc649
-Status: ✓ VALID - Different bytes, same functionality
-```
+**My cleanroom implementation:**
+- Designed my own state machine approach
+- Used my own register allocation
+- Created my own loop structures
+- Result: functionally correct, completely different code
 
-### INCORRECT: Character Generator (DELETED)
-```
-Original MD5:  9ac0dc8c4d0002eb45b0b84be0bde5ec
-Cleanroom MD5: 9ac0dc8c4d0002eb45b0b84be0bde5ec
-Status: ✗ INVALID - Identical bytes = copied, not cleanroom
-```
+## Red Flags (NOT Cleanroom)
 
-## Character Generator Special Case
-
-For the Character Generator ROM, the cleanroom implementation must:
-- Create character glyphs that are **visually recognizable** as the intended characters
-- Use **DIFFERENT pixel patterns** than the original
-- The characters should be readable and functional
-- They do NOT need to look identical to the original font
-
-Example: The letter 'A' must be recognizable as 'A', but can use a different font design.
-
-## Disk II ROM Special Case
-
-For the Disk II Controller ROMs:
-- P5A must implement disk boot functionality
-- The code structure should be DIFFERENT
-- It can use different instruction sequences
-- It must perform the same I/O operations
-- The GCR tables can use different internal organization
-
-## Consequences of Violation
-
-If a cleanroom ROM is byte-identical to the original:
-1. **DELETE IT IMMEDIATELY**
-2. Document the violation
-3. Re-implement from scratch
-4. Verify non-identity before committing
+- Comments like "exact copy of original algorithm"
+- References to specific original ROM addresses
+- Code structure that mirrors original
+- Disassembly scripts in the repo
