@@ -121,10 +121,10 @@ class Display:
         (1, 1): '█',
     }
     
-    def __init__(self, char_rom):
+    def __init__(self, char_rom, cols=40, rows=24):
         self.rom = char_rom
-        self.cols = 40
-        self.rows = 24
+        self.cols = cols
+        self.rows = rows
         self.buffer = [[' '] * self.cols for _ in range(self.rows)]
         self.cx = 0
         self.cy = 0
@@ -171,7 +171,7 @@ class Display:
         for ch in text:
             self.putch(ch)
     
-    def render(self):
+    def render(self, full_clear=False):
         """Render entire display using character ROM pixels."""
         # Pixel buffer: 280 wide × 192 tall
         pw = self.cols * 7
@@ -198,9 +198,12 @@ class Display:
                         if byte & (1 << x):
                             pixels[py + y][px + x] = 1
         
-        # Output to terminal
+        # Output to terminal - just go home, don't clear (prevents flicker)
         out = []
-        out.append(Term.CLEAR)
+        if full_clear:
+            out.append(Term.CLEAR)
+        else:
+            out.append("\033[H")  # Just move cursor to home
         out.append(Term.HIDE_CURSOR)
         out.append(Term.BG)
         
@@ -220,7 +223,8 @@ class Display:
         # Bottom border
         out.append(f"║ {' ' * pw} ║\n")
         out.append(f"╚{'═' * (pw + 2)}╝\n")
-        out.append(f"{Term.GREEN_DIM}  [APPLE II CLEANROOM - ALL TEXT FROM CHARACTER ROM]{Term.RESET}\n")
+        out.append(f"{Term.GREEN_DIM}  [APPLE II CLEANROOM - ALL TEXT FROM CHARACTER ROM]{Term.RESET}")
+        out.append("\033[K\n")  # Clear to end of line
         
         sys.stdout.write(''.join(out))
         sys.stdout.flush()
@@ -252,8 +256,36 @@ class Apple2:
         """Main loop with character-by-character input."""
         self.show_startup()
         self.display.write("]")
-        self.display.render()
+        self.display.render(full_clear=True)
         
+        # Check if we have a real terminal
+        if not sys.stdin.isatty():
+            self.run_line_mode()
+            return
+        
+        self.run_char_mode()
+    
+    def run_line_mode(self):
+        """Fallback line-by-line input for non-interactive use."""
+        while self.running:
+            try:
+                line = input()
+                self.display.write(line.upper() + "\n")
+                
+                cmd = line.strip().upper()
+                if cmd:
+                    result = self.execute(cmd)
+                    if result:
+                        self.display.write(result)
+                
+                if self.running:
+                    self.display.write("]")
+                    self.display.render(full_clear=True)
+            except EOFError:
+                break
+    
+    def run_char_mode(self):
+        """Character-by-character input for real terminals."""
         line_buffer = ""
         
         with RawTerminal() as term:
@@ -261,19 +293,13 @@ class Apple2:
                 ch = term.getch()
                 
                 if ch is None:
-                    # Escape sequence - ignore
                     continue
                 
-                if ch == '\x03':  # Ctrl+C
-                    self.running = False
-                    break
-                
-                if ch == '\x04':  # Ctrl+D
+                if ch == '\x03' or ch == '\x04':  # Ctrl+C or Ctrl+D
                     self.running = False
                     break
                 
                 if ch == '\r' or ch == '\n':
-                    # Enter pressed - execute the line
                     self.display.putch('\n')
                     
                     cmd = line_buffer.strip().upper()
@@ -287,18 +313,15 @@ class Apple2:
                     if self.running:
                         self.display.write("]")
                     
-                    self.display.render()
+                    self.display.render(full_clear=True)
                 
                 elif ch == '\x7f' or ch == '\b':
-                    # Backspace
                     if line_buffer:
                         line_buffer = line_buffer[:-1]
                         self.display.putch('\b')
                         self.display.render()
                 
                 elif ch >= ' ' and ch <= '~':
-                    # Regular printable character
-                    # Immediately display it (through character ROM)
                     line_buffer += ch
                     self.display.putch(ch)
                     self.display.render()
@@ -496,10 +519,22 @@ class Apple2:
         return '\n'.join(output) + "\n" if output else None
 
 
+def get_terminal_size():
+    """Get terminal dimensions."""
+    try:
+        import shutil
+        cols, rows = shutil.get_terminal_size()
+        return cols, rows
+    except:
+        return 80, 24
+
+
 def boot():
-    """Show boot screen."""
+    """Show boot screen and choose display size."""
     sys.stdout.write(Term.CLEAR)
     sys.stdout.write(f"{Term.GREEN}{Term.BG}")
+    
+    cols, rows = get_terminal_size()
     
     print()
     print("  ╔════════════════════════════════════════════════════════════╗")
@@ -513,11 +548,7 @@ def boot():
     print("  ║                                                            ║")
     print("  ║                 CLEANROOM EDITION                          ║")
     print("  ║                                                            ║")
-    print("  ║   Characters appear AS YOU TYPE - each keystroke is       ║")
-    print("  ║   immediately rendered using the Character Generator ROM   ║")
-    print("  ║                                                            ║")
-    print("  ║   Display: 40×24 characters = 280×192 pixels              ║")
-    print("  ║   Requires ~285 column terminal                            ║")
+    print("  ║   Every character rendered from Character Generator ROM    ║")
     print("  ║                                                            ║")
     print("  ╚════════════════════════════════════════════════════════════╝")
     print()
@@ -538,8 +569,38 @@ def boot():
             print(f"    ✓ {os.path.basename(rom)} ({os.path.getsize(path)} bytes)")
     
     print()
+    print(f"  Terminal: {cols}×{rows}")
+    print()
+    
+    # Calculate what fits
+    # Each char = 7 pixels, plus 4 for borders
+    max_chars = (cols - 4) // 7
+    
+    print("  Display options:")
+    print(f"    1. Full 40×24  (needs 285 cols) {'✓' if cols >= 285 else '✗ TOO WIDE'}")
+    print(f"    2. Half 20×12  (needs 145 cols) {'✓' if cols >= 145 else '✗ TOO WIDE'}")
+    print(f"    3. Mini 10×6   (needs 75 cols)  {'✓' if cols >= 75 else '✗ TOO WIDE'}")
+    print()
+    
     print(f"{Term.RESET}")
-    return os.path.join(base, 'cleanroom_roms/chargen.bin')
+    
+    choice = input("  Choose [1/2/3]: ").strip()
+    
+    if choice == '2':
+        display_cols, display_rows = 20, 12
+    elif choice == '3':
+        display_cols, display_rows = 10, 6
+    else:
+        display_cols, display_rows = 40, 24
+    
+    required_width = display_cols * 7 + 4
+    if cols < required_width:
+        print(f"\n  ERROR: Terminal too narrow! Need {required_width} columns, have {cols}")
+        print("  Try: making terminal wider, or reducing font size")
+        print()
+        sys.exit(1)
+    
+    return os.path.join(base, 'cleanroom_roms/chargen.bin'), display_cols, display_rows
 
 
 def main():
@@ -552,14 +613,14 @@ def main():
     
     signal.signal(signal.SIGINT, cleanup)
     
-    # Boot
-    rom_path = boot()
+    # Boot and get display size
+    rom_path, disp_cols, disp_rows = boot()
     
     input("  Press Enter to start...")
     
     # Create display with character ROM
     char_rom = CharacterROM(rom_path)
-    display = Display(char_rom)
+    display = Display(char_rom, cols=disp_cols, rows=disp_rows)
     
     # Run
     apple = Apple2(display)
